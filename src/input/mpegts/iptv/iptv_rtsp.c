@@ -102,7 +102,9 @@ iptv_rtsp_header ( http_client_t *hc )
   }
 
   if (hc->hc_cmd == RTSP_CMD_DESCRIBE && hc->hc_code != HTTP_STATUS_OK && hc->hc_code != HTTP_STATUS_SEE_OTHER) {
-    tvherror(LS_IPTV, "invalid error code for DESCRIBE %d for '%s'", hc->hc_code, im->mm_iptv_url_raw);
+    tvherror(LS_IPTV, "DESCRIBE request returned an invalid error code (%d) for '%s', "
+             "fall back to GET_PARAMETER in keep alive loop.", hc->hc_code, im->mm_iptv_url_raw);
+    hc->hc_rtsp_keep_alive_cmd = RTSP_CMD_GET_PARAMETER;
     return 0;
   }
 
