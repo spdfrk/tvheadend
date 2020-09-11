@@ -407,7 +407,7 @@ static void rtsp_timeshift_fill_status(rtsp_st_t *ts, rtsp_priv_t *rp,
     end = 3600;
     current = 0;
   } else {
-    start = 0;
+    start = rp->range_start - rp->start_position;
     end = rp->range_end - rp->start_position;
     current = rp->position - rp->start_position;
   }
