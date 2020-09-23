@@ -242,7 +242,6 @@ struct rtsp_st {
   streaming_target_t          input;      ///< Input source
   streaming_target_t          *output;    ///< Output dest
   iptv_mux_t *im;
-  char paused;
 };
 
 typedef struct rtsp_st rtsp_st_t;

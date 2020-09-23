@@ -478,16 +478,12 @@ static void rtsp_input(void *opaque, streaming_message_t *sm) {
     if (mux == NULL || mux->im_data == NULL)
       break;
     rp = (rtsp_priv_t*) mux->im_data;
+    tvhinfo(LS_IPTV, "rtsp: set speed: %i", sm->sm_code);
     if (sm->sm_code == 0) {
       rtsp_pause(rp->hc, rp->path, rp->query);
-      pd->paused = 1;
-    } else if (pd->paused) {
-      rtsp_pause(rp->hc, rp->path, rp->query);
-      pd->paused = 0;
     } else {
-      rtsp_set_speed(rp->hc, sm->sm_code);
+      rtsp_set_speed(rp->hc, sm->sm_code / 100);
     }
-    tvhinfo(LS_IPTV, "rtsp: speed: %i", sm->sm_code);
     streaming_msg_free(sm);
     rtsp_timeshift_status(pd, rp);
     break;
