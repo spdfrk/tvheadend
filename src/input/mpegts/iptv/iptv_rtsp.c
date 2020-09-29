@@ -220,7 +220,8 @@ iptv_rtsp_data
     if (rp == NULL)
       break;
     if (rtsp_describe_decode(hc, buf, len) >= 0) {
-      rp->range_start = hc->hc_rtsp_range_start;
+      if(rp->range_start == 0)
+        rp->range_start = hc->hc_rtsp_range_start;
       rp->range_end = hc->hc_rtsp_range_end;
       tvhinfo(LS_IPTV, "rtsp: buffer update, start: %" PRItime_t ", end: %" PRItime_t,
           rp->range_start, rp->range_end);
@@ -407,13 +408,13 @@ static void rtsp_timeshift_fill_status(rtsp_st_t *ts, rtsp_priv_t *rp,
     end = 3600;
     current = 0;
   } else {
-    start = rp->range_start - rp->start_position;
-    end = rp->range_end - rp->start_position;
-    current = rp->position - rp->start_position;
+    start = 0;
+    end = rp->range_end - rp->range_start;
+    current = rp->position - rp->range_start;
   }
   status->full = 0;
 
-  tvhtrace(LS_TIMESHIFT,
+  tvherror(LS_TIMESHIFT,
       "ts status start %"PRId64" end %"PRId64 " current %"PRId64, start, end,
       current);
 
@@ -425,13 +426,17 @@ static void rtsp_timeshift_fill_status(rtsp_st_t *ts, rtsp_priv_t *rp,
 static void rtsp_timeshift_status
   ( rtsp_st_t *pd, rtsp_priv_t *rp )
 {
-  streaming_message_t *tsm;
-  timeshift_status_t *status;
+  streaming_message_t *tsm, *tsm2;
+  timeshift_status_t *status, *status2;
 
   status = calloc(1, sizeof(timeshift_status_t));
+  status2 = calloc(1, sizeof(timeshift_status_t));
   rtsp_timeshift_fill_status(pd, rp, status);
+  rtsp_timeshift_fill_status(pd, rp, status2);
   tsm = streaming_msg_create_data(SMT_TIMESHIFT_STATUS, status);
+  tsm2 = streaming_msg_create_data(SMT_TIMESHIFT_STATUS, status2);
   streaming_target_deliver2(pd->output, tsm);
+  streaming_target_deliver2(pd->tsfix, tsm2);
 }
 
 static void rtsp_input(void *opaque, streaming_message_t *sm) {
@@ -467,8 +472,8 @@ static void rtsp_input(void *opaque, streaming_message_t *sm) {
     mux->mm_iptv_rtp_seq = -1;
     data = (streaming_skip_t*) sm->sm_data;
     rtsp_set_position(rp->hc,
-        rp->start_position + ts_rescale(data->time, 1));
-    tvhinfo(LS_IPTV, "rtsp: skip: %" PRItime_t " + %" PRItime_t, rp->start_position,
+        rp->range_start + ts_rescale(data->time, 1));
+    tvhinfo(LS_IPTV, "rtsp: skip: %" PRItime_t " + %" PRItime_t, rp->range_start,
         ts_rescale(data->time, 1));
     streaming_msg_free(sm);
     rtsp_timeshift_status(pd, rp);
@@ -500,9 +505,11 @@ rtsp_input_info(void *opaque, htsmsg_t *list) {
 
 static streaming_ops_t rtsp_input_ops = { .st_cb = rtsp_input, .st_info = rtsp_input_info };
 
-streaming_target_t* rtsp_st_create(streaming_target_t *out, profile_chain_t *prch) {
+streaming_target_t* rtsp_st_create(streaming_target_t *out, profile_chain_t *prch, streaming_target_t *tsfix) {
   rtsp_st_t *h = calloc(1, sizeof(rtsp_st_t));
+
   h->output = out;
+  h->tsfix = tsfix;
   streaming_target_init(&h->input, &rtsp_input_ops, h, 0);
 
   return &h->input;

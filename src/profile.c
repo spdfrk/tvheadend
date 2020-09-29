@@ -1219,9 +1219,12 @@ profile_htsp_work(profile_chain_t *prch,
   if (!prsh)
     goto fail;
 
+  if (!prsh->prsh_tsfix)
+    prsh->prsh_tsfix = tsfix_create(&prsh->prsh_input);
+
 #if ENABLE_TIMESHIFT
   if (flags & PROFILE_WORK_REMOTE_TS) {
-    dst = prch->prch_rtsp = rtsp_st_create(dst, prch);
+    dst = prch->prch_rtsp = rtsp_st_create(dst, prch, prsh->prsh_tsfix);
   } else {
     if (timeshift_period > 0)
       dst = prch->prch_timeshift = timeshift_create(dst, timeshift_period);
@@ -1233,8 +1236,8 @@ profile_htsp_work(profile_chain_t *prch,
   if (profile_sharer_create(prsh, prch, dst))
     goto fail;
 
-  if (!prsh->prsh_tsfix)
-    prsh->prsh_tsfix = tsfix_create(&prsh->prsh_input);
+
+
 
   prch->prch_share = prsh->prsh_tsfix;
   prch->prch_flags = SUBSCRIPTION_PACKET;

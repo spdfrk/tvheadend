@@ -241,12 +241,13 @@ struct rtsp_st {
   // Note: input MUST BE FIRST in struct
   streaming_target_t          input;      ///< Input source
   streaming_target_t          *output;    ///< Output dest
+  streaming_target_t            *tsfix;
   iptv_mux_t *im;
 };
 
 typedef struct rtsp_st rtsp_st_t;
 #if ENABLE_TIMESHIFT
-streaming_target_t* rtsp_st_create(streaming_target_t *out, profile_chain_t *prch);
+streaming_target_t* rtsp_st_create(streaming_target_t *out, profile_chain_t *prch, streaming_target_t *tsfix);
 void rtsp_st_destroy(streaming_target_t *st);
 #endif
 #endif /* __IPTV_PRIVATE_H__ */
