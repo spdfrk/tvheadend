@@ -178,8 +178,10 @@ static inline int64_t pts_diff(int64_t a, int64_t b)
   b &= PTS_MASK;
   if (b < (PTS_MASK / 4) && a > (PTS_MASK / 2))
     return b + PTS_MASK + 1 - a;
-  else // if (b >= a)
+  else if (b >= a)
     return b - a;
+  else
+    return PTS_UNSET;
 }
 
 static inline int pts_is_greater_or_equal(int64_t base, int64_t value)

@@ -305,12 +305,12 @@ normalize_ts(tsfix_t *tf, tfstream_t *tfs, th_pkt_t *pkt, int backlog)
   }
 
   pkt->pkt_dts = dts;
-  /*
+
   if (pkt->pkt_pts < 0 || pkt->pkt_dts < 0 || pkt->pkt_pcr < 0) {
     tsfix_packet_drop(tfs, pkt, "negative2/error");
     return;
   }
-  */
+
 deliver:
   if (tvhtrace_enabled()) {
     char _odts[22], _opts[22];
