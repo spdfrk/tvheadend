@@ -414,8 +414,8 @@ static void rtsp_timeshift_fill_status(rtsp_st_t *ts, rtsp_priv_t *rp,
   }
   status->full = 0;
 
-  tvherror(LS_TIMESHIFT,
-      "ts status start %"PRId64" end %"PRId64 " current %"PRId64, start, end,
+  tvhdebug(LS_TIMESHIFT,
+      "remote ts status start %"PRId64" end %"PRId64 " current %"PRId64, start, end,
       current);
 
   status->shift = ts_rescale_inv(current, 1);

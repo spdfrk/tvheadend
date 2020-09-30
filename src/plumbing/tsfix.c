@@ -241,7 +241,7 @@ normalize_ts(tsfix_t *tf, tfstream_t *tfs, th_pkt_t *pkt, int backlog)
   if (!tf->dts_offset_apply)
     dts = pts_diff(ref, pkt->pkt_dts);
   else
-    dts = pts_diff(ref, pkt->pkt_dts) + tf->dts_offset;
+    dts = pts_diff(ref, pkt->pkt_dts + tf->dts_offset);
 
   if (tfs->tfs_last_dts_norm == PTS_UNSET) {
     if (dts < 0 || pkt->pkt_err) {
