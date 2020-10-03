@@ -669,6 +669,7 @@ tsfix_input(void *opaque, streaming_message_t *sm)
   case SMT_SKIP:
     tf->dts_offset_apply = 1;
     break;
+
   case SMT_GRACE:
   case SMT_EXIT:
   case SMT_SERVICE_STATUS:

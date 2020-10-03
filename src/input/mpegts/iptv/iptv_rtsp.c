@@ -155,6 +155,8 @@ iptv_rtsp_header ( http_client_t *hc )
   case RTSP_CMD_SETUP:
     r = rtsp_setup_decode(hc, 0);
     if (r >= 0) {
+      if(hc->hc_rtp_timeout > 20)
+        hc->hc_rtp_timeout = 20;
       rtsp_play(hc, rp->path, rp->query);
       rp->play = 1;
     }
@@ -178,7 +180,7 @@ iptv_rtsp_header ( http_client_t *hc )
         rp->position = rp->start_position = time(NULL);
     } else if (rtsp_play_decode(hc) == 0) {
       rp->position = hc->hc_rtsp_stream_start;
-      tvhinfo(LS_IPTV, "rtsp: position update: %" PRItime_t,
+      tvhdebug(LS_IPTV, "rtsp: position update: %" PRItime_t,
           hc->hc_rtsp_stream_start);
     }
     hc->hc_cmd = HTTP_CMD_NONE;
@@ -223,7 +225,7 @@ iptv_rtsp_data
       if(rp->range_start == 0)
         rp->range_start = hc->hc_rtsp_range_start;
       rp->range_end = hc->hc_rtsp_range_end;
-      tvhinfo(LS_IPTV, "rtsp: buffer update, start: %" PRItime_t ", end: %" PRItime_t,
+      tvhdebug(LS_IPTV, "rtsp: buffer update, start: %" PRItime_t ", end: %" PRItime_t,
           rp->range_start, rp->range_end);
     }
     if(rp->play) {
@@ -249,7 +251,7 @@ iptv_rtsp_data
     // Generic position update
     if (strncmp(buf, "position", 8) == 0) {
       rp->position = strtoumax(buf + 10, NULL, 10);
-      tvhinfo(LS_IPTV, "rtsp: position update: %" PRItime_t, rp->position);
+      tvhdebug(LS_IPTV, "rtsp: position update: %" PRItime_t, rp->position);
     }
     break;
   default:
@@ -427,16 +429,34 @@ static void rtsp_timeshift_status
   ( rtsp_st_t *pd, rtsp_priv_t *rp )
 {
   streaming_message_t *tsm, *tsm2;
-  timeshift_status_t *status, *status2;
+  timeshift_status_t *status;
 
   status = calloc(1, sizeof(timeshift_status_t));
-  status2 = calloc(1, sizeof(timeshift_status_t));
   rtsp_timeshift_fill_status(pd, rp, status);
-  rtsp_timeshift_fill_status(pd, rp, status2);
   tsm = streaming_msg_create_data(SMT_TIMESHIFT_STATUS, status);
-  tsm2 = streaming_msg_create_data(SMT_TIMESHIFT_STATUS, status2);
+  tsm2 = streaming_msg_clone(tsm);
   streaming_target_deliver2(pd->output, tsm);
   streaming_target_deliver2(pd->tsfix, tsm2);
+}
+
+void *rtsp_status_thread(void *p) {
+  int64_t mono_now, mono_last_status = 0;
+  rtsp_st_t *pd = p;
+  rtsp_priv_t *rp;
+
+  while (pd->run) {
+    mono_now  = getfastmonoclock();
+    if(pd->im == NULL)
+      continue;
+    rp = (rtsp_priv_t*) pd->im->im_data;
+    if(rp == NULL || !pd->rtsp_input_start)
+      continue;
+    if (mono_now >= (mono_last_status + sec2mono(1))) {
+      rtsp_timeshift_status(pd, rp);
+      mono_last_status = mono_now;
+    }
+  }
+  return NULL;
 }
 
 static void rtsp_input(void *opaque, streaming_message_t *sm) {
@@ -459,7 +479,7 @@ static void rtsp_input(void *opaque, streaming_message_t *sm) {
   case SMT_START:
     rp = (rtsp_priv_t*) pd->im->im_data;
     streaming_target_deliver2(pd->output, sm);
-    rtsp_timeshift_status(pd, rp);
+    pd->rtsp_input_start = 1;
     break;
   case SMT_SKIP:
     mux = (iptv_mux_t*) pd->im;
@@ -476,7 +496,6 @@ static void rtsp_input(void *opaque, streaming_message_t *sm) {
     tvhinfo(LS_IPTV, "rtsp: skip: %" PRItime_t " + %" PRItime_t, rp->range_start,
         ts_rescale(data->time, 1));
     streaming_msg_free(sm);
-    rtsp_timeshift_status(pd, rp);
     break;
   case SMT_SPEED:
     mux = (iptv_mux_t*) pd->im;
@@ -490,7 +509,10 @@ static void rtsp_input(void *opaque, streaming_message_t *sm) {
       rtsp_set_speed(rp->hc, sm->sm_code / 100);
     }
     streaming_msg_free(sm);
-    rtsp_timeshift_status(pd, rp);
+    break;
+  case SMT_EXIT:
+    pd->run = 0;
+    streaming_target_deliver2(pd->output, sm);
     break;
   default:
     streaming_target_deliver2(pd->output, sm);
@@ -503,19 +525,24 @@ rtsp_input_info(void *opaque, htsmsg_t *list) {
   return list;
 }
 
-static streaming_ops_t rtsp_input_ops = { .st_cb = rtsp_input, .st_info = rtsp_input_info };
+static streaming_ops_t rtsp_input_ops =
+{ .st_cb = rtsp_input, .st_info = rtsp_input_info };
 
-streaming_target_t* rtsp_st_create(streaming_target_t *out, profile_chain_t *prch, streaming_target_t *tsfix) {
+streaming_target_t* rtsp_st_create(streaming_target_t *out, profile_chain_t *prch) {
   rtsp_st_t *h = calloc(1, sizeof(rtsp_st_t));
 
   h->output = out;
-  h->tsfix = tsfix;
+  h->tsfix = prch->prch_share;
+  h->run = 1;
+  tvh_thread_create(&h->st_thread, NULL, rtsp_status_thread, h, "rtsp-st");
   streaming_target_init(&h->input, &rtsp_input_ops, h, 0);
 
   return &h->input;
 }
 
 void rtsp_st_destroy(streaming_target_t *st) {
+  rtsp_st_t *h = (rtsp_st_t*)st;
+  h->run = 0;
   free(st);
 }
 #endif
