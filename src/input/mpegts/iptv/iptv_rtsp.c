@@ -222,8 +222,7 @@ iptv_rtsp_data
     if (rp == NULL)
       break;
     if (rtsp_describe_decode(hc, buf, len) >= 0) {
-      if(rp->range_start == 0)
-        rp->range_start = hc->hc_rtsp_range_start;
+      rp->range_start = hc->hc_rtsp_range_start;
       rp->range_end = hc->hc_rtsp_range_end;
       tvhdebug(LS_IPTV, "rtsp: buffer update, start: %" PRItime_t ", end: %" PRItime_t,
           rp->range_start, rp->range_end);
@@ -410,8 +409,8 @@ static void rtsp_timeshift_fill_status(rtsp_st_t *ts, rtsp_priv_t *rp,
     current = 0;
   } else {
     start = 0;
-    end = rp->range_end - rp->range_start;
-    current = rp->position - rp->range_start;
+    end = rp->range_end - rp->start_position;
+    current = rp->position - rp->start_position;
   }
   status->full = 0;
 
@@ -425,7 +424,7 @@ static void rtsp_timeshift_fill_status(rtsp_st_t *ts, rtsp_priv_t *rp,
 }
 
 static void rtsp_timeshift_status
-  ( rtsp_st_t *pd, rtsp_priv_t *rp )
+  ( rtsp_st_t *pd, rtsp_priv_t *rp, int tsfix_update )
 {
   streaming_message_t *tsm, *tsm2;
   timeshift_status_t *status;
@@ -433,9 +432,11 @@ static void rtsp_timeshift_status
   status = calloc(1, sizeof(timeshift_status_t));
   rtsp_timeshift_fill_status(pd, rp, status);
   tsm = streaming_msg_create_data(SMT_TIMESHIFT_STATUS, status);
-  tsm2 = streaming_msg_clone(tsm);
-  streaming_target_deliver2(pd->output, tsm);
-  streaming_target_deliver2(pd->tsfix, tsm2);
+  if(tsfix_update) {
+    tsm2 = streaming_msg_clone(tsm);
+    streaming_target_deliver2(pd->tsfix, tsm2);
+  }
+    streaming_target_deliver2(pd->output, tsm);
 }
 
 void *rtsp_status_thread(void *p) {
@@ -452,9 +453,10 @@ void *rtsp_status_thread(void *p) {
       continue;
     if (mono_now >= (mono_last_status + sec2mono(1))) {
       // In case no buffer updates available assume the buffer is being filled
-      if(rp->hc && rp->hc->hc_rtsp_keep_alive_cmd != RTSP_CMD_DESCRIBE)
-        rp->range_end++;
-      rtsp_timeshift_status(pd, rp);
+      rp->range_start++;
+      rp->range_end++;
+      rp->position++;
+      rtsp_timeshift_status(pd, rp, 0);
       mono_last_status = mono_now;
     }
   }
@@ -490,11 +492,13 @@ static void rtsp_input(void *opaque, streaming_message_t *sm) {
     rtsp_pause(rp->hc, rp->path, rp->query);
     mux->mm_iptv_rtp_seq = -1;
     data = (streaming_skip_t*) sm->sm_data;
-    rtsp_set_position(rp->hc,
-        rp->range_start + ts_rescale(data->time, 1));
-    tvhinfo(LS_IPTV, "rtsp: skip: %" PRItime_t " + %" PRId64, rp->range_start,
+    rp->position = rp->start_position + ts_rescale(data->time, 1)
+        - (rp->range_start - rp->start_position);
+    rtsp_set_position(rp->hc, rp->position);
+    rtsp_timeshift_status(pd, rp, 1);
+    tvhinfo(LS_IPTV, "rtsp: skip: %" PRItime_t " + %" PRId64, rp->start_position,
         ts_rescale(data->time, 1));
-    streaming_msg_free(sm);
+    streaming_target_deliver2(pd->output, sm);
     break;
   case SMT_SPEED:
     mux = (iptv_mux_t*) pd->im;
@@ -507,7 +511,8 @@ static void rtsp_input(void *opaque, streaming_message_t *sm) {
     } else {
       rtsp_set_speed(rp->hc, sm->sm_code / 100);
     }
-    streaming_msg_free(sm);
+    rtsp_timeshift_status(pd, rp, 1);
+    streaming_target_deliver2(pd->output, sm);
     break;
   case SMT_EXIT:
     pd->run = 0;
